@@ -43,7 +43,12 @@ class ProbepaketFinder:
         if os.getenv('GOOGLE_CREDENTIALS_JSON'):
             try:
                 print("🔍 DEBUG: Lade Credentials aus Umgebungsvariable...")
-                credentials_json = json.loads(os.getenv('GOOGLE_CREDENTIALS_JSON'))
+                credentials_string = os.getenv('GOOGLE_CREDENTIALS_JSON')
+                print(f"🔍 DEBUG: Credentials String Länge: {len(credentials_string)}")
+                print(f"🔍 DEBUG: Erste 100 Zeichen: {credentials_string[:100]}")
+                print(f"🔍 DEBUG: Letzte 100 Zeichen: {credentials_string[-100:]}")
+                
+                credentials_json = json.loads(credentials_string)
                 print(f"🔍 DEBUG: Credentials JSON geladen, Typ: {type(credentials_json)}")
                 print(f"🔍 DEBUG: Credentials Keys: {list(credentials_json.keys()) if isinstance(credentials_json, dict) else 'Nicht ein Dictionary'}")
                 
@@ -52,6 +57,7 @@ class ProbepaketFinder:
             except Exception as e:
                 print(f"❌ DEBUG: Fehler beim Laden der Credentials aus Umgebungsvariable: {e}")
                 print(f"❌ DEBUG: Exception Typ: {type(e)}")
+                print(f"❌ DEBUG: Credentials String (erste 200 Zeichen): {credentials_string[:200] if 'credentials_string' in locals() else 'Nicht verfügbar'}")
                 import traceback
                 print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         
