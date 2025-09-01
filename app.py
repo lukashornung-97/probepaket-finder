@@ -477,6 +477,19 @@ def debug():
     debug_info.append(f"🔍 GOOGLE_CREDENTIALS_JSON vorhanden: {bool(os.getenv('GOOGLE_CREDENTIALS_JSON'))}")
     debug_info.append(f"🔍 SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', 'Nicht gesetzt')}")
     
+    # Erweiterte Credentials Debug-Informationen
+    if os.getenv('GOOGLE_CREDENTIALS_JSON'):
+        try:
+            credentials_string = os.getenv('GOOGLE_CREDENTIALS_JSON')
+            debug_info.append(f"🔍 Credentials Länge: {len(credentials_string)} Zeichen")
+            debug_info.append(f"🔍 Erste 100 Zeichen: {credentials_string[:100]}")
+            debug_info.append(f"🔍 Letzte 100 Zeichen: {credentials_string[-100:]}")
+            debug_info.append(f"🔍 Enthält 'type': {'\"type\"' in credentials_string}")
+            debug_info.append(f"🔍 Enthält 'private_key': {'\"private_key\"' in credentials_string}")
+            debug_info.append(f"🔍 Enthält 'client_email': {'\"client_email\"' in credentials_string}")
+        except Exception as e:
+            debug_info.append(f"❌ Fehler beim Analysieren der Credentials: {str(e)}")
+    
     # Versuche Finder zu erstellen
     try:
         finder = get_finder()
