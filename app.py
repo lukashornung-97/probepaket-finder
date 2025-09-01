@@ -34,95 +34,174 @@ class ProbepaketFinder:
         SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
         creds = None
         
+        print("🔍 DEBUG: Starte Google Sheets Authentifizierung...")
+        print(f"🔍 DEBUG: Umgebungsvariable GOOGLE_CREDENTIALS_JSON vorhanden: {bool(os.getenv('GOOGLE_CREDENTIALS_JSON'))}")
+        print(f"🔍 DEBUG: Lokale credentials.json vorhanden: {os.path.exists('credentials.json')}")
+        print(f"🔍 DEBUG: Lokale token.pickle vorhanden: {os.path.exists('token.pickle')}")
+        
         # Für Render: Credentials aus Umgebungsvariable laden
         if os.getenv('GOOGLE_CREDENTIALS_JSON'):
             try:
+                print("🔍 DEBUG: Lade Credentials aus Umgebungsvariable...")
                 credentials_json = json.loads(os.getenv('GOOGLE_CREDENTIALS_JSON'))
+                print(f"🔍 DEBUG: Credentials JSON geladen, Typ: {type(credentials_json)}")
+                print(f"🔍 DEBUG: Credentials Keys: {list(credentials_json.keys()) if isinstance(credentials_json, dict) else 'Nicht ein Dictionary'}")
+                
                 creds = Credentials.from_authorized_user_info(credentials_json, SCOPES)
+                print("🔍 DEBUG: Credentials erfolgreich aus Umgebungsvariable geladen")
             except Exception as e:
-                print(f"Fehler beim Laden der Credentials aus Umgebungsvariable: {e}")
+                print(f"❌ DEBUG: Fehler beim Laden der Credentials aus Umgebungsvariable: {e}")
+                print(f"❌ DEBUG: Exception Typ: {type(e)}")
+                import traceback
+                print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         
         # Fallback: Lokale Dateien (für Entwicklung)
         if not creds:
+            print("🔍 DEBUG: Keine Credentials aus Umgebungsvariable, versuche lokale Dateien...")
             # Token aus vorheriger Sitzung laden
             if os.path.exists('token.pickle'):
-                with open('token.pickle', 'rb') as token:
-                    creds = pickle.load(token)
+                try:
+                    with open('token.pickle', 'rb') as token:
+                        creds = pickle.load(token)
+                    print("🔍 DEBUG: Token aus token.pickle geladen")
+                except Exception as e:
+                    print(f"❌ DEBUG: Fehler beim Laden von token.pickle: {e}")
                     
             # Wenn keine gültigen Credentials vorhanden, neu authentifizieren
             if not creds or not creds.valid:
+                print(f"🔍 DEBUG: Credentials gültig: {creds.valid if creds else 'Keine Credentials'}")
                 if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
+                    try:
+                        creds.refresh(Request())
+                        print("🔍 DEBUG: Credentials erfolgreich aktualisiert")
+                    except Exception as e:
+                        print(f"❌ DEBUG: Fehler beim Aktualisieren der Credentials: {e}")
                 else:
                     if os.path.exists('credentials.json'):
-                        flow = InstalledAppFlow.from_client_secrets_file(
-                            'credentials.json', SCOPES)
-                        creds = flow.run_local_server(port=0)
+                        try:
+                            flow = InstalledAppFlow.from_client_secrets_file(
+                                'credentials.json', SCOPES)
+                            creds = flow.run_local_server(port=0)
+                            print("🔍 DEBUG: Neue Authentifizierung erfolgreich")
+                        except Exception as e:
+                            print(f"❌ DEBUG: Fehler bei neuer Authentifizierung: {e}")
                     else:
-                        raise Exception("Keine Google API Credentials gefunden!")
+                        error_msg = "Keine Google API Credentials gefunden!"
+                        print(f"❌ DEBUG: {error_msg}")
+                        raise Exception(error_msg)
                     
                 # Token für nächste Sitzung speichern
-                with open('token.pickle', 'wb') as token:
-                    pickle.dump(creds, token)
-                
-        return build('sheets', 'v4', credentials=creds)
+                if creds:
+                    try:
+                        with open('token.pickle', 'wb') as token:
+                            pickle.dump(creds, token)
+                        print("🔍 DEBUG: Token erfolgreich gespeichert")
+                    except Exception as e:
+                        print(f"❌ DEBUG: Fehler beim Speichern des Tokens: {e}")
+        
+        if not creds:
+            error_msg = "Authentifizierung fehlgeschlagen - keine gültigen Credentials"
+            print(f"❌ DEBUG: {error_msg}")
+            raise Exception(error_msg)
+            
+        print("🔍 DEBUG: Erstelle Google Sheets Service...")
+        try:
+            service = build('sheets', 'v4', credentials=creds)
+            print("✅ DEBUG: Google Sheets Service erfolgreich erstellt")
+            return service
+        except Exception as e:
+            print(f"❌ DEBUG: Fehler beim Erstellen des Google Sheets Service: {e}")
+            import traceback
+            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+            raise
     
     def load_data(self):
         """Lädt alle relevanten Daten aus den Google Sheets."""
-        print("Lade Daten aus Google Sheets...")
+        print("🔍 DEBUG: Starte Datenladevorgang...")
+        print(f"🔍 DEBUG: Spreadsheet ID: {self.spreadsheet_id}")
+        print(f"🔍 DEBUG: Service verfügbar: {self.service is not None}")
         
         # Daten aus Farben laden (enthält Produkte und deren Farben)
         try:
+            print("🔍 DEBUG: Lade Farben Daten...")
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range='Farben'
             ).execute()
             self.farben_data = result.get('values', [])
-            print(f"✓ Farben Daten geladen: {len(self.farben_data)} Zeilen")
+            print(f"✅ DEBUG: Farben Daten geladen: {len(self.farben_data)} Zeilen")
+            if self.farben_data:
+                print(f"🔍 DEBUG: Erste Farben Zeile: {self.farben_data[0] if self.farben_data else 'Leer'}")
         except Exception as e:
-            print(f"✗ Fehler beim Laden von Farben: {e}")
+            print(f"❌ DEBUG: Fehler beim Laden von Farben: {e}")
+            import traceback
+            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
             
         # Daten aus Monday laden (enthält Verfügbarkeitsstatus)
         try:
+            print("🔍 DEBUG: Lade Monday Daten...")
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range='monday'
             ).execute()
             self.monday_data = result.get('values', [])
-            print(f"✓ Monday Daten geladen: {len(self.monday_data)} Zeilen")
+            print(f"✅ DEBUG: Monday Daten geladen: {len(self.monday_data)} Zeilen")
+            if self.monday_data:
+                print(f"🔍 DEBUG: Erste Monday Zeile: {self.monday_data[0] if self.monday_data else 'Leer'}")
         except Exception as e:
-            print(f"✗ Fehler beim Laden von Monday: {e}")
+            print(f"❌ DEBUG: Fehler beim Laden von Monday: {e}")
+            import traceback
+            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
             
         # Daten aus Lager_neu laden (enthält tatsächliche Paket-Inhalte)
         try:
+            print("🔍 DEBUG: Lade Lager_neu Daten...")
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range='Lager_neu'
             ).execute()
             self.lager_data = result.get('values', [])
-            print(f"✓ Lager_neu Daten geladen: {len(self.lager_data)} Zeilen")
+            print(f"✅ DEBUG: Lager_neu Daten geladen: {len(self.lager_data)} Zeilen")
+            if self.lager_data:
+                print(f"🔍 DEBUG: Erste Lager_neu Zeile: {self.lager_data[0] if self.lager_data else 'Leer'}")
         except Exception as e:
-            print(f"✗ Fehler beim Laden von Lager_neu: {e}")
+            print(f"❌ DEBUG: Fehler beim Laden von Lager_neu: {e}")
+            import traceback
+            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
             
         self.last_update = datetime.now()
+        print(f"🔍 DEBUG: Datenladevorgang abgeschlossen um {self.last_update}")
     
     def get_available_products(self) -> List[str]:
         """Gibt eine Liste aller verfügbaren Produkte zurück."""
+        print("🔍 DEBUG: get_available_products aufgerufen")
+        print(f"🔍 DEBUG: Farben Daten verfügbar: {self.farben_data is not None}")
+        print(f"🔍 DEBUG: Farben Daten Länge: {len(self.farben_data) if self.farben_data else 0}")
+        
         if not self.farben_data:
+            print("❌ DEBUG: Keine Farben Daten verfügbar")
             return []
             
         products = []
-        for row in self.farben_data:
+        print("🔍 DEBUG: Durchlaufe Farben Daten...")
+        for i, row in enumerate(self.farben_data):
+            print(f"🔍 DEBUG: Zeile {i}: {row}")
             if row and len(row) > 0:
                 product_name = row[0].strip()
+                print(f"🔍 DEBUG: Produktname: '{product_name}'")
                 # Nur echte Produktnamen hinzufügen (nicht Farben)
                 if (product_name and 
                     product_name not in products and 
                     not any(color_word in product_name.lower() for color_word in 
                            ['blue', 'white', 'black', 'green', 'red', 'pink', 'orange', 'yellow', 'purple', 'grey', 'brown', 'apricot'])):
                     products.append(product_name)
+                    print(f"✅ DEBUG: Produkt hinzugefügt: '{product_name}'")
+                else:
+                    print(f"⏭️ DEBUG: Produkt übersprungen: '{product_name}'")
         
-        return sorted(products)
+        result = sorted(products)
+        print(f"🔍 DEBUG: Finale Produktliste: {result}")
+        return result
     
     def get_available_colors(self, product: str) -> List[str]:
         """Gibt eine Liste aller verfügbaren Farben für ein Produkt zurück."""
@@ -360,9 +439,22 @@ finder = None
 def get_finder():
     """Singleton Pattern für den Finder."""
     global finder
+    print(f"🔍 DEBUG: get_finder aufgerufen, finder ist None: {finder is None}")
     if finder is None:
-        finder = ProbepaketFinder(SPREADSHEET_ID)
-        finder.load_data()
+        print(f"🔍 DEBUG: Erstelle neuen ProbepaketFinder mit Spreadsheet ID: {SPREADSHEET_ID}")
+        try:
+            finder = ProbepaketFinder(SPREADSHEET_ID)
+            print("🔍 DEBUG: ProbepaketFinder erfolgreich erstellt")
+            print("🔍 DEBUG: Starte load_data...")
+            finder.load_data()
+            print("🔍 DEBUG: load_data abgeschlossen")
+        except Exception as e:
+            print(f"❌ DEBUG: Fehler beim Erstellen des Finders: {e}")
+            import traceback
+            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+            raise
+    else:
+        print("🔍 DEBUG: Verwende existierenden Finder")
     return finder
 
 @app.route('/')
@@ -374,14 +466,25 @@ def index():
 def get_products():
     """API Endpoint für verfügbare Produkte."""
     try:
+        print("🔍 DEBUG: /api/products aufgerufen")
         finder = get_finder()
+        print(f"🔍 DEBUG: Finder erstellt: {finder is not None}")
+        print(f"🔍 DEBUG: Farben Daten verfügbar: {finder.farben_data is not None}")
+        print(f"🔍 DEBUG: Farben Daten Länge: {len(finder.farben_data) if finder.farben_data else 0}")
+        
         products = finder.get_available_products()
+        print(f"🔍 DEBUG: Produkte gefunden: {len(products)}")
+        print(f"🔍 DEBUG: Produkte: {products}")
+        
         return jsonify({
             'success': True,
             'products': products,
             'last_update': finder.last_update.isoformat() if finder.last_update else None
         })
     except Exception as e:
+        print(f"❌ DEBUG: Fehler in /api/products: {e}")
+        import traceback
+        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'error': str(e)
