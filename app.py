@@ -462,6 +462,74 @@ def index():
     """Hauptseite der WebApp."""
     return render_template('index.html')
 
+@app.route('/debug')
+def debug():
+    """Debug-Seite um Logs anzuzeigen."""
+    debug_info = []
+    
+    # Umgebungsvariablen prüfen
+    debug_info.append(f"🔍 GOOGLE_CREDENTIALS_JSON vorhanden: {bool(os.getenv('GOOGLE_CREDENTIALS_JSON'))}")
+    debug_info.append(f"🔍 SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', 'Nicht gesetzt')}")
+    
+    # Versuche Finder zu erstellen
+    try:
+        finder = get_finder()
+        debug_info.append(f"✅ Finder erfolgreich erstellt")
+        debug_info.append(f"🔍 Farben Daten: {len(finder.farben_data) if finder.farben_data else 0} Zeilen")
+        debug_info.append(f"🔍 Monday Daten: {len(finder.monday_data) if finder.monday_data else 0} Zeilen")
+        debug_info.append(f"🔍 Lager_neu Daten: {len(finder.lager_data) if finder.lager_data else 0} Zeilen")
+        
+        # Teste Produkte laden
+        products = finder.get_available_products()
+        debug_info.append(f"✅ Produkte geladen: {len(products)}")
+        debug_info.append(f"🔍 Produkte: {products}")
+        
+    except Exception as e:
+        debug_info.append(f"❌ Fehler beim Erstellen des Finders: {str(e)}")
+        import traceback
+        debug_info.append(f"❌ Traceback: {traceback.format_exc()}")
+    
+    # HTML für Debug-Seite
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Debug - Probepaket Finder</title>
+        <style>
+            body {{ font-family: monospace; margin: 20px; background: #f5f5f5; }}
+            .debug-item {{ background: white; margin: 10px 0; padding: 10px; border-radius: 5px; border-left: 4px solid #007bff; }}
+            .error {{ border-left-color: #dc3545; }}
+            .success {{ border-left-color: #28a745; }}
+            .info {{ border-left-color: #17a2b8; }}
+            h1 {{ color: #333; }}
+            .refresh {{ background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
+        </style>
+    </head>
+    <body>
+        <h1>🔍 Probepaket Finder Debug</h1>
+        <button class="refresh" onclick="location.reload()">🔄 Aktualisieren</button>
+        <div style="margin-top: 20px;">
+    """
+    
+    for item in debug_info:
+        if "❌" in item:
+            html += f'<div class="debug-item error">{item}</div>'
+        elif "✅" in item:
+            html += f'<div class="debug-item success">{item}</div>'
+        else:
+            html += f'<div class="debug-item info">{item}</div>'
+    
+    html += """
+        </div>
+        <div style="margin-top: 30px;">
+            <a href="/" style="color: #007bff;">← Zurück zur Hauptseite</a>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
+
 @app.route('/api/products')
 def get_products():
     """API Endpoint für verfügbare Produkte."""
