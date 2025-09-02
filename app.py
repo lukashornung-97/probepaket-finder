@@ -7,11 +7,9 @@ Eine moderne Web-Anwendung zur Suche nach verfügbaren Probepaketen
 from flask import Flask, render_template, request, jsonify
 import os
 import pandas as pd
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
-import pickle
+
 from typing import List, Dict, Optional
 import json
 from datetime import datetime, timedelta
@@ -30,95 +28,41 @@ class ProbepaketFinder:
         self.last_update = None
         
     def _authenticate_google_sheets(self):
-        """Authentifiziert bei Google Sheets API."""
+        """Authentifiziert bei Google Sheets API (Service Account, Render-tauglich)."""
         SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+
+        # Support both names so you don't have to rename your Render secret
+        raw = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON') or os.getenv('GOOGLE_CREDENTIALS_JSON')
         creds = None
-        
-        print("🔍 DEBUG: Starte Google Sheets Authentifizierung...")
-        print(f"🔍 DEBUG: Umgebungsvariable GOOGLE_CREDENTIALS_JSON vorhanden: {bool(os.getenv('GOOGLE_CREDENTIALS_JSON'))}")
-        print(f"🔍 DEBUG: Lokale credentials.json vorhanden: {os.path.exists('credentials.json')}")
-        print(f"🔍 DEBUG: Lokale token.pickle vorhanden: {os.path.exists('token.pickle')}")
-        
-        # Für Render: Credentials aus Umgebungsvariable laden
-        if os.getenv('GOOGLE_CREDENTIALS_JSON'):
-            try:
-                print("🔍 DEBUG: Lade Credentials aus Umgebungsvariable...")
-                credentials_string = os.getenv('GOOGLE_CREDENTIALS_JSON')
-                print(f"🔍 DEBUG: Credentials String Länge: {len(credentials_string)}")
-                print(f"🔍 DEBUG: Erste 100 Zeichen: {credentials_string[:100]}")
-                print(f"🔍 DEBUG: Letzte 100 Zeichen: {credentials_string[-100:]}")
-                
-                credentials_json = json.loads(credentials_string)
-                print(f"🔍 DEBUG: Credentials JSON geladen, Typ: {type(credentials_json)}")
-                print(f"🔍 DEBUG: Credentials Keys: {list(credentials_json.keys()) if isinstance(credentials_json, dict) else 'Nicht ein Dictionary'}")
-                
-                creds = Credentials.from_authorized_user_info(credentials_json, SCOPES)
-                print("🔍 DEBUG: Credentials erfolgreich aus Umgebungsvariable geladen")
-            except Exception as e:
-                print(f"❌ DEBUG: Fehler beim Laden der Credentials aus Umgebungsvariable: {e}")
-                print(f"❌ DEBUG: Exception Typ: {type(e)}")
-                print(f"❌ DEBUG: Credentials String (erste 200 Zeichen): {credentials_string[:200] if 'credentials_string' in locals() else 'Nicht verfügbar'}")
-                import traceback
-                print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
-        
-        # Fallback: Lokale Dateien (für Entwicklung)
-        if not creds:
-            print("🔍 DEBUG: Keine Credentials aus Umgebungsvariable, versuche lokale Dateien...")
-            # Token aus vorheriger Sitzung laden
-            if os.path.exists('token.pickle'):
-                try:
-                    with open('token.pickle', 'rb') as token:
-                        creds = pickle.load(token)
-                    print("🔍 DEBUG: Token aus token.pickle geladen")
-                except Exception as e:
-                    print(f"❌ DEBUG: Fehler beim Laden von token.pickle: {e}")
-                    
-            # Wenn keine gültigen Credentials vorhanden, neu authentifizieren
-            if not creds or not creds.valid:
-                print(f"🔍 DEBUG: Credentials gültig: {creds.valid if creds else 'Keine Credentials'}")
-                if creds and creds.expired and creds.refresh_token:
-                    try:
-                        creds.refresh(Request())
-                        print("🔍 DEBUG: Credentials erfolgreich aktualisiert")
-                    except Exception as e:
-                        print(f"❌ DEBUG: Fehler beim Aktualisieren der Credentials: {e}")
-                else:
-                    if os.path.exists('credentials.json'):
-                        try:
-                            flow = InstalledAppFlow.from_client_secrets_file(
-                                'credentials.json', SCOPES)
-                            creds = flow.run_local_server(port=0)
-                            print("🔍 DEBUG: Neue Authentifizierung erfolgreich")
-                        except Exception as e:
-                            print(f"❌ DEBUG: Fehler bei neuer Authentifizierung: {e}")
-                    else:
-                        error_msg = "Keine Google API Credentials gefunden!"
-                        print(f"❌ DEBUG: {error_msg}")
-                        raise Exception(error_msg)
-                    
-                # Token für nächste Sitzung speichern
-                if creds:
-                    try:
-                        with open('token.pickle', 'wb') as token:
-                            pickle.dump(creds, token)
-                        print("🔍 DEBUG: Token erfolgreich gespeichert")
-                    except Exception as e:
-                        print(f"❌ DEBUG: Fehler beim Speichern des Tokens: {e}")
-        
-        if not creds:
-            error_msg = "Authentifizierung fehlgeschlagen - keine gültigen Credentials"
-            print(f"❌ DEBUG: {error_msg}")
-            raise Exception(error_msg)
-            
-        print("🔍 DEBUG: Erstelle Google Sheets Service...")
+
         try:
-            service = build('sheets', 'v4', credentials=creds)
-            print("✅ DEBUG: Google Sheets Service erfolgreich erstellt")
+            if raw:
+                # Env var contains the **full service account JSON** pasted as-is
+                info = json.loads(raw)
+                if info.get('type') != 'service_account':
+                    raise ValueError(f"Expected a service_account JSON, got type={info.get('type')!r}")
+                creds = ServiceAccountCredentials.from_service_account_info(info, scopes=SCOPES)
+
+            elif os.getenv('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')):
+                # Or: use a Secret File mounted at that path
+                creds = ServiceAccountCredentials.from_service_account_file(
+                    os.getenv('GOOGLE_APPLICATION_CREDENTIALS'),
+                    scopes=SCOPES
+                )
+            else:
+                raise RuntimeError(
+                    "No service account credentials found. "
+                    "Set GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_CREDENTIALS_JSON) "
+                    "or mount a Secret File and set GOOGLE_APPLICATION_CREDENTIALS."
+                )
+
+            # Build Sheets service. cache_discovery=False avoids writing .cache on ephemeral FS
+            service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
             return service
+
         except Exception as e:
-            print(f"❌ DEBUG: Fehler beim Erstellen des Google Sheets Service: {e}")
-            import traceback
-            print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+            # Keep logs minimal—do NOT print key material
+            print(f"❌ Auth error: {e.__class__.__name__}: {e}")
             raise
     
     def load_data(self):
@@ -477,18 +421,14 @@ def debug():
     debug_info.append(f"🔍 GOOGLE_CREDENTIALS_JSON vorhanden: {bool(os.getenv('GOOGLE_CREDENTIALS_JSON'))}")
     debug_info.append(f"🔍 SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', 'Nicht gesetzt')}")
     
-    # Erweiterte Credentials Debug-Informationen
-    if os.getenv('GOOGLE_CREDENTIALS_JSON'):
+    # Erweiterte Credentials Debug-Informationen (ohne Secrets zu loggen)
+    if raw := (os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON') or os.getenv('GOOGLE_CREDENTIALS_JSON')):
         try:
-            credentials_string = os.getenv('GOOGLE_CREDENTIALS_JSON')
-            debug_info.append(f"🔍 Credentials Länge: {len(credentials_string)} Zeichen")
-            debug_info.append(f"🔍 Erste 100 Zeichen: {credentials_string[:100]}")
-            debug_info.append(f"🔍 Letzte 100 Zeichen: {credentials_string[-100:]}")
-            debug_info.append(f"🔍 Enthält 'type': {'\"type\"' in credentials_string}")
-            debug_info.append(f"🔍 Enthält 'private_key': {'\"private_key\"' in credentials_string}")
-            debug_info.append(f"🔍 Enthält 'client_email': {'\"client_email\"' in credentials_string}")
-        except Exception as e:
-            debug_info.append(f"❌ Fehler beim Analysieren der Credentials: {str(e)}")
+            info = json.loads(raw)
+            debug_info.append(f"🔍 Service account email present: {bool(info.get('client_email'))}")
+            debug_info.append(f"🔍 Service account type: {info.get('type', 'unknown')}")
+        except Exception:
+            debug_info.append("❌ Credential JSON not parseable")
     
     # Versuche Finder zu erstellen
     try:
@@ -502,6 +442,14 @@ def debug():
         products = finder.get_available_products()
         debug_info.append(f"✅ Produkte geladen: {len(products)}")
         debug_info.append(f"🔍 Produkte: {products}")
+        
+        # Live ping to Sheets API
+        try:
+            svc = finder.service
+            _ = svc.spreadsheets().get(spreadsheetId=os.getenv('SPREADSHEET_ID')).execute()
+            debug_info.append("✅ Sheets API reachable with current credentials")
+        except Exception as e:
+            debug_info.append(f"❌ Sheets API call failed: {e}")
         
     except Exception as e:
         debug_info.append(f"❌ Fehler beim Erstellen des Finders: {str(e)}")
